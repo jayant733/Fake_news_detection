@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+.venv/
+
+# Spark
+spark-3.2.0-bin-hadoop2.7/
+spark-3.2.0-bin-hadoop2.7.tgz
+
+# Model outputs
+bert_results/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac files
+.DS_Stores
