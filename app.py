@@ -6,12 +6,15 @@ import matplotlib.pyplot as plt
 from collections import Counter
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
 
+from src.data_utils import resolve_data_path, resolve_repo_path
+
 # ==============================
 # LOAD MODEL + VECTORIZER
 # ==============================
 
-vectorizer = joblib.load("vectorizer.pkl")
-model = joblib.load("fake_news_model.pkl")
+vectorizer = joblib.load(resolve_repo_path("vectorizer.pkl"))
+model = joblib.load(resolve_repo_path("fake_news_model.pkl"))
+TRAINING_DATA = resolve_data_path()
 
 # ==============================
 # PAGE CONFIG
@@ -49,27 +52,23 @@ if menu == "Prediction":
 
         else:
             vector = vectorizer.transform([news_text])
-
-            fake_prob = model.predict_proba(vector)[0][1]
+            fake_prob = float(model.predict_proba(vector)[0][1])
+            real_prob = 1.0 - fake_prob
 
             THRESHOLD = 0.75
 
-            if fake_prob < THRESHOLD:
-                st.success("✅ Real News")
-                display_fake = 1 - fake_prob
-                display_real = fake_prob
+            if fake_prob >= THRESHOLD:
+                st.error("Fake News Detected")
             else:
-                st.error("🚨 Fake News Detected")
-                display_fake = fake_prob
-                display_real = 1 - fake_prob
+                st.success("✅ Real News")
 
             col1, col2 = st.columns(2)
 
-            col1.metric("Fake Probability", f"{display_fake:.2f}")
-            col2.metric("Real Probability", f"{display_real:.2f}")
+            col1.metric("Fake Probability", f"{fake_prob:.2f}")
+            col2.metric("Real Probability", f"{real_prob:.2f}")
 
-            st.progress(int(display_real * 100))
-            st.caption(f"Confidence: {max(display_real, display_fake)*100:.1f}%")
+            st.progress(int(real_prob * 100))
+            st.caption(f"Confidence: {max(real_prob, fake_prob)*100:.1f}%")
 
 # ==============================
 # 2️⃣ EDA INSIGHTS
@@ -79,7 +78,7 @@ elif menu == "EDA Insights":
 
     st.header("📊 Data Insights")
 
-    df = pd.read_csv("./DSCI632-Project/data/train.csv")
+    df = pd.read_csv(TRAINING_DATA)
 
     TEXT_COL = "text" if "text" in df.columns else "content"
     df = df.dropna(subset=[TEXT_COL, "label"])
@@ -124,7 +123,7 @@ elif menu == "Model Analysis":
     st.header("📈 Model Analysis")
 
     # Dummy dataset reload (same pipeline)
-    df = pd.read_csv("./DSCI632-Project/data/train.csv")
+    df = pd.read_csv(TRAINING_DATA)
 
     TEXT_COL = "text" if "text" in df.columns else "content"
     df = df.dropna(subset=[TEXT_COL, "label"])
@@ -169,6 +168,10 @@ elif menu == "Model Analysis":
     # FEATURE IMPORTANCE (LOGISTIC)
     # --------------------------
     if st.button("Top 20 Important Words"):
+
+        if not hasattr(model, "coef_"):
+            st.info("Feature importance is only available for linear models with coefficients.")
+            st.stop()
 
         feature_names = vectorizer.get_feature_names_out()
         coefs = model.coef_[0]
