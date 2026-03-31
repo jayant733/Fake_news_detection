@@ -2,90 +2,182 @@ import streamlit as st
 import joblib
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from collections import Counter
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
 
 # ==============================
-# LOAD MODEL
+# LOAD MODEL + VECTORIZER
 # ==============================
 
 vectorizer = joblib.load("vectorizer.pkl")
 model = joblib.load("fake_news_model.pkl")
 
 # ==============================
-# PAGE TITLE
+# PAGE CONFIG
 # ==============================
+
+st.set_page_config(page_title="Fake News Detector", layout="wide")
 
 st.title("📰 Fake News Detection System")
 
-st.markdown("""
-This system detects whether a news article is **Real or Fake** using Machine Learning models.
-
-Models used:
-- Naive Bayes
-- Logistic Regression
-- Linear SVM
-- XGBoost
-- BERT (Transformer)
-
-Dataset: Fake News Detection Dataset
-""")
+st.markdown("Detect whether a news article is **Real or Fake** using ML.")
 
 # ==============================
-# USER INPUT
+# SIDEBAR NAVIGATION
 # ==============================
 
-news_text = st.text_area("Enter News Text")
+menu = st.sidebar.selectbox(
+    "Navigation",
+    ["Prediction", "EDA Insights", "Model Analysis"]
+)
 
-if st.button("Predict"):
+# ==============================
+# 1️⃣ PREDICTION SECTION
+# ==============================
 
-    if news_text.strip() == "":
-        st.warning("Please enter some text")
+if menu == "Prediction":
 
-    else:
-        vector = vectorizer.transform([news_text])
+    st.header("🔍 News Prediction")
 
-        prediction = model.predict(vector)[0]
-        probability = model.predict_proba(vector)[0][1]
+    news_text = st.text_area("Enter News Text")
 
-        if prediction == 1:
-            st.error("🚨 Fake News Detected")
+    if st.button("Predict"):
+
+        if news_text.strip() == "":
+            st.warning("Please enter some text")
+
         else:
-            st.success("✅ Real News")
+            vector = vectorizer.transform([news_text])
 
-        st.write(f"Confidence: **{probability:.2f}**")
+            fake_prob = model.predict_proba(vector)[0][1]
+
+            THRESHOLD = 0.75
+
+            if fake_prob < THRESHOLD:
+                st.success("✅ Real News")
+                display_fake = 1 - fake_prob
+                display_real = fake_prob
+            else:
+                st.error("🚨 Fake News Detected")
+                display_fake = fake_prob
+                display_real = 1 - fake_prob
+
+            col1, col2 = st.columns(2)
+
+            col1.metric("Fake Probability", f"{display_fake:.2f}")
+            col2.metric("Real Probability", f"{display_real:.2f}")
+
+            st.progress(int(display_real * 100))
+            st.caption(f"Confidence: {max(display_real, display_fake)*100:.1f}%")
 
 # ==============================
-# MODEL PERFORMANCE
+# 2️⃣ EDA INSIGHTS
 # ==============================
 
-st.header("Model Comparison")
+elif menu == "EDA Insights":
 
-data = {
-    "Model": ["Naive Bayes","Logistic Regression","Linear SVM","XGBoost"],
-    "Accuracy":[0.92,0.96,0.97,0.98],
-    "F1 Score":[0.91,0.95,0.96,0.97]
-}
+    st.header("📊 Data Insights")
 
-df = pd.DataFrame(data)
+    df = pd.read_csv("./DSCI632-Project/data/train.csv")
 
-st.dataframe(df)
+    TEXT_COL = "text" if "text" in df.columns else "content"
+    df = df.dropna(subset=[TEXT_COL, "label"])
 
-st.bar_chart(df.set_index("Model")["Accuracy"])
+    df["full_text"] = df[TEXT_COL]
+
+    fake_text = df[df["label"] == 1]["full_text"]
+    real_text = df[df["label"] == 0]["full_text"]
+
+    if st.button("Show Most Common Words (Fake News)"):
+
+        fake_words = Counter(" ".join(fake_text).split())
+        common_fake = fake_words.most_common(20)
+
+        words, counts = zip(*common_fake)
+
+        plt.figure()
+        plt.bar(words, counts)
+        plt.xticks(rotation=45)
+        plt.title("Top Words in Fake News")
+        st.pyplot(plt)
+
+    if st.button("Show Most Common Words (Real News)"):
+
+        real_words = Counter(" ".join(real_text).split())
+        common_real = real_words.most_common(20)
+
+        words, counts = zip(*common_real)
+
+        plt.figure()
+        plt.bar(words, counts)
+        plt.xticks(rotation=45)
+        plt.title("Top Words in Real News")
+        st.pyplot(plt)
 
 # ==============================
-# PROJECT INFO
+# 3️⃣ MODEL ANALYSIS
 # ==============================
 
-st.header("About This Project")
+elif menu == "Model Analysis":
 
-st.write("""
-This project compares traditional machine learning models and transformer-based models for fake news detection.
+    st.header("📈 Model Analysis")
 
-Techniques used:
+    # Dummy dataset reload (same pipeline)
+    df = pd.read_csv("./DSCI632-Project/data/train.csv")
 
-• TF-IDF Feature Engineering  
-• Bigram NLP features  
-• Machine Learning Classification  
-• Ensemble Models (XGBoost)  
-• Transformer Model (BERT)  
-• Hyperparameter Tuning  
-""")
+    TEXT_COL = "text" if "text" in df.columns else "content"
+    df = df.dropna(subset=[TEXT_COL, "label"])
+
+    df["full_text"] = df[TEXT_COL]
+
+    X = vectorizer.transform(df["full_text"])
+    y = df["label"]
+
+    # --------------------------
+    # CONFUSION MATRIX
+    # --------------------------
+    if st.button("Show Confusion Matrix"):
+
+        y_pred = model.predict(X)
+
+        cm = confusion_matrix(y, y_pred)
+        disp = ConfusionMatrixDisplay(cm)
+
+        fig, ax = plt.subplots()
+        disp.plot(ax=ax)
+        st.pyplot(fig)
+
+    # --------------------------
+    # ROC CURVE
+    # --------------------------
+    if st.button("Show ROC Curve"):
+
+        y_prob = model.predict_proba(X)[:, 1]
+
+        fpr, tpr, _ = roc_curve(y, y_prob)
+        roc_auc = auc(fpr, tpr)
+
+        plt.figure()
+        plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.2f}")
+        plt.plot([0,1], [0,1], linestyle="--")
+        plt.legend()
+        plt.title("ROC Curve")
+        st.pyplot(plt)
+
+    # --------------------------
+    # FEATURE IMPORTANCE (LOGISTIC)
+    # --------------------------
+    if st.button("Top 20 Important Words"):
+
+        feature_names = vectorizer.get_feature_names_out()
+        coefs = model.coef_[0]
+
+        top_indices = np.argsort(coefs)[-20:]
+
+        words = [feature_names[i] for i in top_indices]
+
+        plt.figure()
+        plt.barh(words, coefs[top_indices])
+        plt.title("Top 20 Important Words (Fake)")
+        st.pyplot(plt)
